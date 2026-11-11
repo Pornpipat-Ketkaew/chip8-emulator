@@ -18,10 +18,16 @@ public:
     // Returns false (and prints why) if the file can't be loaded.
     bool loadRom(const std::string& path);
 
+    // Runs ONE instruction: fetch, decode, execute.
+    void cycle();
+
     std::uint8_t readMemory(std::uint16_t address) const { return memory_[address]; }
     std::uint16_t pc() const { return pc_; }
+    const std::array<std::uint8_t, kScreenWidth * kScreenHeight>& display() const { return display_; }
 
 private:
+    void drawSprite(std::uint8_t vx, std::uint8_t vy, std::uint8_t height);
+
     std::array<std::uint8_t, kMemorySize> memory_{};   // 4 KB of RAM
     std::array<std::uint8_t, 16> v_{};                 // registers V0..VF
     std::uint16_t i_ = 0;                              // index register
