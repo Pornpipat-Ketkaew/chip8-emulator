@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # needed to create a GitHub Release
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Install MSYS2, tools and SDL2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-SDL2
+            zip
+            curl
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          NAME="chip8-emulator-${GITHUB_REF_NAME}-windows"
+          mkdir -p "$NAME/roms"
+          cp build/chip8.exe README.md LICENSE "$NAME/"
+          # Copy every DLL from MSYS2 that chip8.exe needs (SDL2, C++ runtime, ...)
+          ldd build/chip8.exe | grep -i ucrt64 | awk '{print $3}' | xargs -I{} cp {} "$NAME/"
+          test -f "$NAME/SDL2.dll"   # stop with an error if the DLL copy failed
+          # A free public-domain game so people can play right away
+          curl -fsSL -o "$NAME/roms/br8kout.ch8" https://raw.githubusercontent.com/JohnEarnest/chip8Archive/master/roms/br8kout.ch8
+          ls -l "$NAME"
+          zip -r "$NAME.zip" "$NAME"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: chip8-emulator-${{ github.ref_name }}-windows.zip
+          generate_release_notes: true

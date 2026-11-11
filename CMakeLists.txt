@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(chip8 LANGUAGES CXX)
+project(chip8 VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +13,7 @@ target_compile_options(chip8_core PRIVATE -Wall -Wextra -Wpedantic)
 find_package(SDL2 REQUIRED)
 add_executable(chip8 src/main.cpp)
 target_link_libraries(chip8 PRIVATE chip8_core SDL2::SDL2)
+target_compile_definitions(chip8 PRIVATE CHIP8_VERSION="${PROJECT_VERSION}")
 target_compile_options(chip8 PRIVATE -Wall -Wextra -Wpedantic)
 
 # --- Unit tests with GoogleTest (downloaded automatically the first time). ---
