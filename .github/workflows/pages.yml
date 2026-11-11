@@ -1,0 +1,63 @@
+name: Deploy web version
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:      # also adds a "Run workflow" button in the Actions tab
+
+permissions:
+  contents: read
+  pages: write            # allowed to publish to GitHub Pages
+  id-token: write
+
+concurrency:              # if you push twice quickly, only the newest deploy runs
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build with Emscripten
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Install Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git
+          ./emsdk/emsdk install latest
+          ./emsdk/emsdk activate latest
+
+      - name: Build the web version
+        run: |
+          source ./emsdk/emsdk_env.sh
+          mkdir -p roms
+          curl -fsSL -o roms/br8kout.ch8 https://raw.githubusercontent.com/JohnEarnest/chip8Archive/master/roms/br8kout.ch8
+          emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web
+          mkdir -p site
+          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data site/
+          ls -l site
+
+      - name: Upload the website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

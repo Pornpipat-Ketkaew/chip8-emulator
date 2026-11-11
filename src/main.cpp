@@ -1,6 +1,10 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <array>
 #include <cstdint>
 #include <iostream>
@@ -16,9 +20,11 @@ namespace {
 
 constexpr const char* kTitle = "CHIP-8 Emulator v" CHIP8_VERSION;
 
-constexpr int kScale = 10;               // each CHIP-8 pixel becomes a 10x10 square
+constexpr int kScale = 10;                // each CHIP-8 pixel becomes a 10x10 square
 constexpr int kInstructionsPerFrame = 10; // 10 x 60 frames = 600 instructions per second
+#ifndef __EMSCRIPTEN__
 constexpr Uint32 kFrameMs = 1000 / 60;    // one frame = about 16 ms (60 frames per second)
+#endif
 
 constexpr std::uint32_t kColorOn = 0xFFE0E0E0;   // light grey (format: 0xAARRGGBB)
 constexpr std::uint32_t kColorOff = 0xFF141428;  // dark blue
@@ -78,9 +84,150 @@ void showError(const std::string& message) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kTitle, message.c_str(), nullptr);
 }
 
+// Everything the running emulator needs, kept together in one place.
+struct App {
+    Chip8 chip8;
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+    SDL_Texture* texture = nullptr;
+    SDL_AudioDeviceID audio = 0;
+    int sampleIndex = 0;
+    bool running = true;
+    std::array<std::uint32_t, Chip8::kScreenWidth * Chip8::kScreenHeight> pixels{};
+};
+
+// Starts a new game. The old game is only replaced if the new file loads correctly.
+void loadGame(App& app, const std::string& path) {
+    Chip8 fresh;
+    if (fresh.loadRom(path)) {
+        app.chip8 = fresh;
+    } else {
+        showError("Could not load ROM:\n" + path);
+    }
+}
+
+// Creates the window, renderer, texture and (if possible) the sound device.
+bool initSdl(App& app) {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        showError(std::string("SDL_Init failed: ") + SDL_GetError());
+        return false;
+    }
+
+    app.window = SDL_CreateWindow(kTitle, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                  Chip8::kScreenWidth * kScale, Chip8::kScreenHeight * kScale, 0);
+    if (app.window == nullptr) {
+        showError(std::string("SDL_CreateWindow failed: ") + SDL_GetError());
+        return false;
+    }
+
+    app.renderer = SDL_CreateRenderer(app.window, -1, 0);
+    if (app.renderer == nullptr) {
+        showError(std::string("SDL_CreateRenderer failed: ") + SDL_GetError());
+        return false;
+    }
+
+    // A small 64x32 image that we update every frame. SDL stretches it to fill the window.
+    app.texture = SDL_CreateTexture(app.renderer, SDL_PIXELFORMAT_ARGB8888,
+                                    SDL_TEXTUREACCESS_STREAMING,
+                                    Chip8::kScreenWidth, Chip8::kScreenHeight);
+    if (app.texture == nullptr) {
+        showError(std::string("SDL_CreateTexture failed: ") + SDL_GetError());
+        return false;
+    }
+
+    // Open the speaker. If there is no sound device, keep running without sound.
+    SDL_AudioSpec want{};
+    want.freq = kSampleRate;
+    want.format = AUDIO_S16SYS;   // 16-bit signed samples
+    want.channels = 1;            // mono
+    want.samples = 512;           // small buffer = low delay
+    want.callback = audioCallback;
+    want.userdata = &app.sampleIndex;
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+        app.audio = SDL_OpenAudioDevice(nullptr, 0, &want, nullptr, 0);
+    }
+    if (app.audio == 0) {
+        std::cerr << "No sound: " << SDL_GetError() << '\n';
+    }
+    return true;
+}
+
+void shutdownSdl(App& app) {
+    if (app.audio != 0) SDL_CloseAudioDevice(app.audio);
+    if (app.texture != nullptr) SDL_DestroyTexture(app.texture);
+    if (app.renderer != nullptr) SDL_DestroyRenderer(app.renderer);
+    if (app.window != nullptr) SDL_DestroyWindow(app.window);
+    SDL_Quit();
+}
+
+// One frame of the emulator: input -> CPU -> timers -> sound -> picture.
+void runFrame(App& app) {
+    // 1. Handle events (close button, Esc key, keypad keys, dropped files).
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_QUIT) {
+            app.running = false;
+        } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+            const bool pressed = (event.type == SDL_KEYDOWN);
+            if (pressed && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+                app.running = false;
+            }
+            app.chip8.setKey(mapKey(event.key.keysym.scancode), pressed);
+        } else if (event.type == SDL_DROPFILE) {
+            // A file was dragged onto the window: start that game from scratch.
+            char* path = event.drop.file;
+            loadGame(app, path);
+            SDL_free(path);
+        }
+    }
+
+    // 2. Run the CPU for a few instructions, then tick the timers once (60 Hz).
+    for (int i = 0; i < kInstructionsPerFrame; ++i) {
+        app.chip8.cycle();
+    }
+    app.chip8.tickTimers();
+
+    // 3. Beep while the sound timer is above 0 (pause = silence).
+    if (app.audio != 0) {
+        SDL_PauseAudioDevice(app.audio, app.chip8.isSoundOn() ? 0 : 1);
+    }
+
+    // 4. Turn the CHIP-8 display (0s and 1s) into colors and show it.
+    const auto& display = app.chip8.display();
+    for (std::size_t i = 0; i < display.size(); ++i) {
+        app.pixels[i] = display[i] ? kColorOn : kColorOff;
+    }
+    SDL_UpdateTexture(app.texture, nullptr, app.pixels.data(),
+                      Chip8::kScreenWidth * sizeof(std::uint32_t));
+    SDL_RenderClear(app.renderer);
+    SDL_RenderCopy(app.renderer, app.texture, nullptr, nullptr);
+    SDL_RenderPresent(app.renderer);
+}
+
+#ifdef __EMSCRIPTEN__
+App* g_app = nullptr;
+
+void webFrame() {
+    runFrame(*g_app);
+}
+#endif
+
 }  // namespace
 
+#ifdef __EMSCRIPTEN__
+// JavaScript in the web page calls this after the user picks a .ch8 file.
+extern "C" EMSCRIPTEN_KEEPALIVE void loadRomFromWeb(const char* path) {
+    if (g_app != nullptr) {
+        loadGame(*g_app, path);
+    }
+}
+#endif
+
 int main(int argc, char* argv[]) {
+#ifdef __EMSCRIPTEN__
+    // On the web there is no command line: start with the game built into the page.
+    const std::string romPath = (argc >= 2) ? argv[1] : "/roms/br8kout.ch8";
+#else
     if (argc < 2) {
         const char* help =
             "How to play:\n"
@@ -90,132 +237,39 @@ int main(int argc, char* argv[]) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, kTitle, help, nullptr);
         return 1;
     }
+    const std::string romPath = argv[1];
+#endif
 
-    Chip8 chip8;
-    if (!chip8.loadRom(argv[1])) {
-        showError(std::string("Could not load ROM:\n") + argv[1]);
+    // static: on the web, the App must stay alive even after main() has finished.
+    static App app;
+    if (!app.chip8.loadRom(romPath)) {
+        showError("Could not load ROM:\n" + romPath);
         return 1;
     }
 
     SDL_SetMainReady();
-
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
+    if (!initSdl(app)) {
+        shutdownSdl(app);
         return 1;
     }
 
-    SDL_Window* window = SDL_CreateWindow(kTitle,
-                                          SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                          Chip8::kScreenWidth * kScale,
-                                          Chip8::kScreenHeight * kScale, 0);
-    if (window == nullptr) {
-        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
-    if (renderer == nullptr) {
-        std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << '\n';
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    // A small 64x32 image that we update every frame. SDL stretches it to fill the window.
-    SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                             SDL_TEXTUREACCESS_STREAMING,
-                                             Chip8::kScreenWidth, Chip8::kScreenHeight);
-    if (texture == nullptr) {
-        std::cerr << "SDL_CreateTexture failed: " << SDL_GetError() << '\n';
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    std::array<std::uint32_t, Chip8::kScreenWidth * Chip8::kScreenHeight> pixels{};
-
-    // Open the speaker. If there is no sound device, keep running without sound.
-    int sampleIndex = 0;
-    SDL_AudioSpec want{};
-    want.freq = kSampleRate;
-    want.format = AUDIO_S16SYS;   // 16-bit signed samples
-    want.channels = 1;            // mono
-    want.samples = 512;           // small buffer = low delay
-    want.callback = audioCallback;
-    want.userdata = &sampleIndex;
-    SDL_AudioDeviceID audio = 0;
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
-        audio = SDL_OpenAudioDevice(nullptr, 0, &want, nullptr, 0);
-    }
-    if (audio == 0) {
-        std::cerr << "No sound: " << SDL_GetError() << '\n';
-    }
-
-    bool running = true;
-    while (running) {
+#ifdef __EMSCRIPTEN__
+    // A web page must never block the browser with an endless while loop.
+    // Instead we ask the browser to call webFrame() 60 times per second.
+    g_app = &app;
+    emscripten_set_main_loop(webFrame, 60, true);
+#else
+    while (app.running) {
         const Uint32 frameStart = SDL_GetTicks();
+        runFrame(app);
 
-        // 1. Handle events (close button, Esc key, keypad keys).
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
-                running = false;
-            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
-                const bool pressed = (event.type == SDL_KEYDOWN);
-                if (pressed && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-                    running = false;
-                }
-                chip8.setKey(mapKey(event.key.keysym.scancode), pressed);
-            } else if (event.type == SDL_DROPFILE) {
-                // A file was dragged onto the window: start that game from scratch.
-                char* path = event.drop.file;
-                Chip8 fresh;
-                if (fresh.loadRom(path)) {
-                    chip8 = fresh;
-                } else {
-                    showError(std::string("Could not load ROM:\n") + path);
-                }
-                SDL_free(path);
-            }
-        }
-
-        // 2. Run the CPU for a few instructions.
-        for (int i = 0; i < kInstructionsPerFrame; ++i) {
-            chip8.cycle();
-        }
-        chip8.tickTimers();  // once per frame = 60 times per second
-
-        // Beep while the sound timer is above 0 (pause = silence).
-        if (audio != 0) {
-            SDL_PauseAudioDevice(audio, chip8.isSoundOn() ? 0 : 1);
-        }
-
-        // 3. Turn the CHIP-8 display (0s and 1s) into colors and show it.
-        const auto& display = chip8.display();
-        for (std::size_t i = 0; i < display.size(); ++i) {
-            pixels[i] = display[i] ? kColorOn : kColorOff;
-        }
-        SDL_UpdateTexture(texture, nullptr, pixels.data(),
-                          Chip8::kScreenWidth * sizeof(std::uint32_t));
-        SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-        SDL_RenderPresent(renderer);
-
-        // 4. Wait so that we run at about 60 frames per second.
+        // Wait so that we run at about 60 frames per second.
         const Uint32 elapsed = SDL_GetTicks() - frameStart;
         if (elapsed < kFrameMs) {
             SDL_Delay(kFrameMs - elapsed);
         }
     }
-
-    if (audio != 0) {
-        SDL_CloseAudioDevice(audio);
-    }
-    SDL_DestroyTexture(texture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    shutdownSdl(app);
+#endif
     return 0;
 }

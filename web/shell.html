@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CHIP-8 Emulator</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: system-ui, sans-serif;
+      text-align: center;
+    }
+    canvas {
+      width: 640px;
+      max-width: 100%;
+      image-rendering: pixelated;   /* keep the big square pixels sharp */
+      border: 2px solid #30363d;
+      border-radius: 6px;
+    }
+    .keys { margin: 0 auto; font-family: monospace; border-collapse: collapse; }
+    .keys td { padding: 2px 8px; }
+    .keys th { padding: 2px 8px; font-weight: normal; color: #8b949e; }
+    a { color: #58a6ff; }
+    #status { color: #8b949e; }
+  </style>
+</head>
+<body>
+  <h1>CHIP-8 Emulator</h1>
+  <p id="status">Loading...</p>
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+  <p>Playing <b>Br8kout</b>: press <b>A</b> and <b>D</b> to move the paddle.
+     Click the game first if the keys don't respond.</p>
+  <p>Load your own game:
+     <input type="file" id="rom-input" accept=".ch8"></p>
+
+  <p>Keypad mapping:</p>
+  <table class="keys">
+    <tr><th colspan="4">CHIP-8 key</th><th></th><th colspan="4">Your keyboard</th></tr>
+    <tr><td>1</td><td>2</td><td>3</td><td>C</td><td>&rarr;</td><td>1</td><td>2</td><td>3</td><td>4</td></tr>
+    <tr><td>4</td><td>5</td><td>6</td><td>D</td><td>&rarr;</td><td>Q</td><td>W</td><td>E</td><td>R</td></tr>
+    <tr><td>7</td><td>8</td><td>9</td><td>E</td><td>&rarr;</td><td>A</td><td>S</td><td>D</td><td>F</td></tr>
+    <tr><td>A</td><td>0</td><td>B</td><td>F</td><td>&rarr;</td><td>Z</td><td>X</td><td>C</td><td>V</td></tr>
+  </table>
+
+  <p>Written in C++17 and compiled to WebAssembly with Emscripten.
+     <a href="https://github.com/Pornpipat-Ketkaew/chip8-emulator">Source code on GitHub</a></p>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const status = document.getElementById('status');
+
+    // "Module" is how Emscripten's generated code talks to this page.
+    var Module = {
+      canvas: canvas,
+      onRuntimeInitialized: function () {
+        status.textContent = 'Running';
+        canvas.focus();
+      },
+      setStatus: function (text) {
+        if (text) status.textContent = text;
+      },
+    };
+
+    // When the user picks a file, copy it into Emscripten's in-memory file system
+    // and ask the C++ code to load it.
+    document.getElementById('rom-input').addEventListener('change', async function (event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      Module.FS.writeFile('/uploaded.ch8', bytes);
+      Module.ccall('loadRomFromWeb', null, ['string'], ['/uploaded.ch8']);
+      status.textContent = 'Running ' + file.name;
+      canvas.focus();
+    });
+
+    // Browsers only allow sound after the user interacts with the page.
+    canvas.addEventListener('click', function () { canvas.focus(); });
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
