@@ -45,16 +45,23 @@ bool Chip8::loadRom(const std::string& path) {
     std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(file)),
                                     std::istreambuf_iterator<char>());
 
+    if (!loadProgram(bytes)) {
+        return false;
+    }
+    std::cout << "Loaded " << bytes.size() << " bytes from " << path << '\n';
+    return true;
+}
+
+bool Chip8::loadProgram(const std::vector<std::uint8_t>& program) {
     const std::size_t maxSize = kMemorySize - kProgramStart;
-    if (bytes.empty() || bytes.size() > maxSize) {
-        std::cerr << "ROM size " << bytes.size() << " bytes is invalid (max " << maxSize << ")\n";
+    if (program.empty() || program.size() > maxSize) {
+        std::cerr << "Program size " << program.size() << " bytes is invalid (max " << maxSize << ")\n";
         return false;
     }
 
-    for (std::size_t i = 0; i < bytes.size(); ++i) {
-        memory_[kProgramStart + i] = bytes[i];
+    for (std::size_t i = 0; i < program.size(); ++i) {
+        memory_[kProgramStart + i] = program[i];
     }
-    std::cout << "Loaded " << bytes.size() << " bytes from " << path << '\n';
     return true;
 }
 

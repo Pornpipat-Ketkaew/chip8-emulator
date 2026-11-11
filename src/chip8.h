@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <random>
 #include <string>
-
+#include <vector>
 class Chip8 {
 public:
     static constexpr int kMemorySize = 4096;
@@ -18,7 +18,8 @@ public:
     // Copies a .ch8 program file into memory at 0x200.
     // Returns false (and prints why) if the file can't be loaded.
     bool loadRom(const std::string& path);
-
+        // Copies program bytes into memory at 0x200. Returns false if empty or too big.
+    bool loadProgram(const std::vector<std::uint8_t>& program);
     // Runs ONE instruction: fetch, decode, execute.
     void cycle();
 
@@ -32,6 +33,10 @@ public:
 
     std::uint8_t readMemory(std::uint16_t address) const { return memory_[address]; }
     std::uint16_t pc() const { return pc_; }
+    std::uint8_t v(int index) const { return v_[index & 0xF]; }
+    std::uint16_t indexRegister() const { return i_; }
+    std::uint8_t delayTimer() const { return delayTimer_; }
+    std::uint8_t soundTimer() const { return soundTimer_; }
     const std::array<std::uint8_t, kScreenWidth * kScreenHeight>& display() const { return display_; }
 
 private:

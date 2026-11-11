@@ -117,8 +117,8 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < kInstructionsPerFrame; ++i) {
             chip8.cycle();
                     
-            chip8.tickTimers();  // once per frame = 60 times per second
-        }
+           
+        }  chip8.tickTimers();  // once per frame = 60 times per second
 
         // 3. Turn the CHIP-8 display (0s and 1s) into colors and show it.
         const auto& display = chip8.display();
