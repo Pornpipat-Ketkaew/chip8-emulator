@@ -15,7 +15,34 @@ constexpr Uint32 kFrameMs = 1000 / 60;    // one frame = about 16 ms (60 frames 
 
 constexpr std::uint32_t kColorOn = 0xFFE0E0E0;   // light grey (format: 0xAARRGGBB)
 constexpr std::uint32_t kColorOff = 0xFF141428;  // dark blue
-
+// The CHIP-8 keypad is a 4x4 grid. We map it to the left side of a PC keyboard:
+//   CHIP-8 keypad      PC keyboard
+//   1 2 3 C            1 2 3 4
+//   4 5 6 D            Q W E R
+//   7 8 9 E            A S D F
+//   A 0 B F            Z X C V
+// We use "scancodes" (physical key positions), so it also works with a Thai keyboard layout.
+int mapKey(SDL_Scancode code) {
+    switch (code) {
+        case SDL_SCANCODE_1: return 0x1;
+        case SDL_SCANCODE_2: return 0x2;
+        case SDL_SCANCODE_3: return 0x3;
+        case SDL_SCANCODE_4: return 0xC;
+        case SDL_SCANCODE_Q: return 0x4;
+        case SDL_SCANCODE_W: return 0x5;
+        case SDL_SCANCODE_E: return 0x6;
+        case SDL_SCANCODE_R: return 0xD;
+        case SDL_SCANCODE_A: return 0x7;
+        case SDL_SCANCODE_S: return 0x8;
+        case SDL_SCANCODE_D: return 0x9;
+        case SDL_SCANCODE_F: return 0xE;
+        case SDL_SCANCODE_Z: return 0xA;
+        case SDL_SCANCODE_X: return 0x0;
+        case SDL_SCANCODE_C: return 0xB;
+        case SDL_SCANCODE_V: return 0xF;
+        default: return -1;
+    }
+}
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -72,19 +99,25 @@ int main(int argc, char* argv[]) {
     while (running) {
         const Uint32 frameStart = SDL_GetTicks();
 
-        // 1. Handle events (close button, Esc key).
+        // 1. Handle events (close button, Esc key, keypad keys).
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
-            } else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
-                running = false;
+            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+                const bool pressed = (event.type == SDL_KEYDOWN);
+                if (pressed && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+                    running = false;
+                }
+                chip8.setKey(mapKey(event.key.keysym.scancode), pressed);
             }
         }
 
         // 2. Run the CPU for a few instructions.
         for (int i = 0; i < kInstructionsPerFrame; ++i) {
             chip8.cycle();
+                    
+            chip8.tickTimers();  // once per frame = 60 times per second
         }
 
         // 3. Turn the CHIP-8 display (0s and 1s) into colors and show it.
