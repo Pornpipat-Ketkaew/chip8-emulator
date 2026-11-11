@@ -40,6 +40,13 @@ chip8-emulator/
 ├── .github/workflows/ci.yml  # build + test on Linux and Windows
 └── CMakeLists.txt
 ```
+## Download and play (Windows)
+
+1. Download the latest `chip8-emulator-...-windows.zip` from the [Releases page](https://github.com/Pornpipat-Ketkaew/chip8-emulator/releases).
+2. Unzip it anywhere.
+3. Drag a `.ch8` game file (for example `roms/br8kout.ch8`) onto `chip8.exe`.
+
+If Windows shows "Windows protected your PC", click **More info → Run anyway**. This appears because the program is not code-signed.
 
 ## Building
 
