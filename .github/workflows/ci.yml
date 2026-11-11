@@ -7,15 +7,16 @@ on:
 jobs:
   linux:
     name: Linux (GCC)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Get the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install tools and SDL2
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libsdl2-dev
+          sudo apt-get install -y --no-install-recommends ninja-build libsdl2-dev
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -29,12 +30,13 @@ jobs:
   windows:
     name: Windows (MSYS2 UCRT64)
     runs-on: windows-latest
+    timeout-minutes: 30
     defaults:
       run:
         shell: msys2 {0}
     steps:
       - name: Get the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install MSYS2, tools and SDL2
         uses: msys2/setup-msys2@v2
