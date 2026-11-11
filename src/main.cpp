@@ -1,8 +1,28 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+
+#include <cstdio>
 #include <iostream>
 
-int main() {
+#include "chip8.h"
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: chip8 <rom-file>\n";
+        return 1;
+    }
+
+    Chip8 chip8;
+    if (!chip8.loadRom(argv[1])) {
+        return 1;
+    }
+
+    // Print the first 8 bytes of the program so we can check it loaded correctly.
+    for (int i = 0; i < 8; ++i) {
+        std::printf("%02X ", chip8.readMemory(Chip8::kProgramStart + i));
+    }
+    std::printf("\n");
+
     SDL_SetMainReady();
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
