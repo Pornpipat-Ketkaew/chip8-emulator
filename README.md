@@ -6,6 +6,8 @@ A CHIP-8 emulator written from scratch in modern C++17, with SDL2 for graphics, 
 
 CHIP-8 is a simple virtual computer from the 1970s. This project emulates its CPU, memory, display, keypad and timers, so it can run original CHIP-8 programs and games.
 
+**▶ [Play it in your browser](https://pornpipat-ketkaew.github.io/chip8-emulator/)** (no download needed) · **[Download for Windows](https://github.com/Pornpipat-Ketkaew/chip8-emulator/releases/latest)**
+
 ![Demo: Br8kout running in the emulator](docs/demo.gif)
 
 ## Features
@@ -17,11 +19,12 @@ CHIP-8 is a simple virtual computer from the 1970s. This project emulates its CP
 - Safe against broken programs: memory access is bounded, stack overflow/underflow is caught, and oversized ROMs are rejected
 - **24 unit tests** (GoogleTest) for instructions, flags, timers, keys and edge cases
 - Passes the community [CHIP-8 test suite](https://github.com/Timendus/chip8-test-suite) (CORAX+ opcode test and flags test)
-- **Continuous integration** on Linux and Windows with GitHub Actions
+- **Runs in the browser**: compiled to WebAssembly with Emscripten and published on GitHub Pages
+- **Automated with GitHub Actions**: tests on Linux and Windows for every push, Windows release packages for every version tag, and automatic deployment of the web version
 
 ## How it works
 
-The emulator core (`src/chip8.cpp`) is pure C++ with no graphics code, so it can be unit tested on its own. The SDL front end (`src/main.cpp`) only handles the window, keyboard and speaker.
+The emulator core (`src/chip8.cpp`) is pure C++ with no graphics code, so it can be unit tested on its own. The SDL front end (`src/main.cpp`) only handles the window, keyboard and speaker. The same front end also builds for the web: on the desktop a normal loop calls `runFrame()`, while in the browser `emscripten_set_main_loop` calls it 60 times per second so the page never freezes.
 
 Each frame (60 times per second), the main loop:
 
@@ -34,12 +37,18 @@ Each frame (60 times per second), the main loop:
 chip8-emulator/
 ├── src/
 │   ├── chip8.h / chip8.cpp   # emulator core: CPU, memory, display, timers, keypad
-│   └── main.cpp              # SDL2 window, input, rendering and sound
+│   └── main.cpp              # SDL2 window, input, rendering and sound (desktop + web)
 ├── tests/
 │   └── chip8_tests.cpp       # GoogleTest unit tests
-├── .github/workflows/ci.yml  # build + test on Linux and Windows
+├── web/
+│   └── shell.html            # web page template for the WebAssembly version
+├── .github/workflows/
+│   ├── ci.yml                # build + test on Linux and Windows
+│   ├── release.yml           # Windows zip on every version tag
+│   └── pages.yml             # deploy the web version to GitHub Pages
 └── CMakeLists.txt
 ```
+
 ## Download and play (Windows)
 
 1. Download the latest `chip8-emulator-...-windows.zip` from the [Releases page](https://github.com/Pornpipat-Ketkaew/chip8-emulator/releases).
@@ -101,6 +110,7 @@ Press **Esc** to quit.
 - Separating core logic from the user interface so it can be tested
 - Writing unit tests, including edge cases, with GoogleTest
 - Building cross-platform C++ with CMake, and setting up CI with GitHub Actions
+- Shipping software: semantic versioning, release packages with their DLLs, and porting C++ to WebAssembly
 
 ## References
 
